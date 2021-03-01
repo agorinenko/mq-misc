@@ -6,9 +6,10 @@ import json
 import logging
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, Callable, Dict, Awaitable
 
 import aio_pika
+
 from mq_misc.errors import AdapterError
 
 
@@ -39,7 +40,6 @@ class BaseAdapter(ABC):
     def __init__(self, url: str,
                  queue_name: Optional[str] = None,
                  loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_event_loop()):
-
         if loop is None:
             loop = asyncio.get_event_loop()
 
@@ -129,13 +129,6 @@ class BaseConsumer(BaseAdapter, ABC):
         """
         raise NotImplementedError("Not implemented process_message method")
 
-    @abstractmethod
-    async def validate_message(self, message_json: Any) -> bool:
-        """
-        Валидация сообщения на основе схемы
-        """
-        raise NotImplementedError("Not implemented validate_message method")
-
     async def create_consume_connection(self, robust: Optional[bool] = True,
                                         prefetch_count: Optional[int] = 0,
                                         **kwargs) -> aio_pika.Connection:
@@ -164,10 +157,6 @@ class BaseConsumer(BaseAdapter, ABC):
             try:
                 message_json = decode_message(message)
 
-                validate_message_result = await self.validate_message(message_json)
-                if not validate_message_result:
-                    raise AdapterError("Message did not pass validation")
-
                 await self.process_message(message_json, message)
             except Exception as ex:
                 await self._on_handle_delivery_error(ex, message)
@@ -179,10 +168,25 @@ class BaseConsumer(BaseAdapter, ABC):
         """
         self.logger.error(ex, exc_info=True)
 
+    async def publish_response(self, incoming_message: aio_pika.IncomingMessage, message: Union[str, dict]):
+        if self.channel is None:
+            raise AdapterError("Connection is not established: channel is none")
+
+        message_body = encode_message(message)
+
+        await self.channel.default_exchange.publish(
+            aio_pika.Message(
+                message_body,
+                content_type="application/json",
+                correlation_id=incoming_message.correlation_id
+            ),
+            routing_key=incoming_message.reply_to,
+        )
+
 
 class Publisher(BaseAdapter):
     """
-    Базовый издатель очереди сообщений
+    Издатель очереди сообщений
     """
 
     async def publish(self, message: Union[str, dict], **kwargs) -> None:
@@ -206,7 +210,8 @@ class Publisher(BaseAdapter):
 
 class ReplyToConsumer(BaseConsumer, ABC):
     """
-    Reply-To потребитель
+    Reply-To потребитель,
+    который может пудликовать сообщение в произвольную очередь с указанием того, куда нужно вернуть ответ
     """
     futures = None
 
@@ -222,6 +227,8 @@ class ReplyToConsumer(BaseConsumer, ABC):
     async def declare_queue(self, **kwargs) -> aio_pika.Queue:
         """
         Определение очереди
+        :param kwargs:
+        :return:
         """
         if self.channel is None:
             raise AdapterError("Connection is not established: channel is none")
@@ -231,9 +238,12 @@ class ReplyToConsumer(BaseConsumer, ABC):
 
         return self.queue
 
-    async def publish(self, message: dict):
+    async def publish(self, message: dict, publisher: Publisher):
         """
-        После начала чтения очереди вызываем publish сообщения
+        Публикация сообщения в очередь
+        :param message: сообщение
+        :param publisher: издатель
+        :return:
         """
         correlation_id = str(uuid.uuid4())
 
@@ -241,16 +251,21 @@ class ReplyToConsumer(BaseConsumer, ABC):
 
         self.futures[correlation_id] = future, message
 
-        await self._publish(message, correlation_id)
+        await self._publish(message, correlation_id, publisher)
 
         return await asyncio.wait_for(future, timeout=self.timeout)
 
-    @abstractmethod
-    async def _publish(self, message: dict, correlation_id: str) -> Any:
+    async def _publish(self, message: dict, correlation_id: str, publisher: Publisher) -> None:
         """
-        После начала чтения очереди вызываем publish сообщения
+        Публикация сообщения в произвольную очередь с указанием reply_to очереди для ответа
+        :param message: сообщение
+        :param correlation_id: идентификатор сообщения
+        :param publisher: издатель
+        :return:
         """
-        raise NotImplementedError("Not implemented after_consume method")
+        await publisher.publish(message,
+                                correlation_id=correlation_id,
+                                reply_to=self.queue.name)
 
     async def _handle_delivery(self, message: aio_pika.IncomingMessage) -> None:
         correlation_id = message.correlation_id
