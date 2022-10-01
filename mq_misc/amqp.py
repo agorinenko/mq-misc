@@ -4,11 +4,13 @@
 import asyncio
 import json
 import logging
+import pprint
 import uuid
 from abc import ABC, abstractmethod
 from typing import Any, Optional, Union, Callable, Dict, Awaitable
 
 import aio_pika
+from aio_pika import ExchangeType
 
 from mq_misc.errors import AdapterError
 
@@ -39,6 +41,8 @@ class BaseAdapter(ABC):
 
     def __init__(self, url: str,
                  queue_name: Optional[str] = None,
+                 exchange_name: Optional[str] = None,
+                 exchange_type: Union[ExchangeType, str] = ExchangeType.DIRECT,
                  loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_event_loop()):
         if loop is None:
             loop = asyncio.get_event_loop()
@@ -53,6 +57,9 @@ class BaseAdapter(ABC):
         self.queue = None
 
         self.logger = logging.getLogger(__name__)
+
+        self.exchange_name = exchange_name
+        self.exchange_type = exchange_type
 
     async def create_connection(self,
                                 robust: Optional[bool] = True,
@@ -79,22 +86,48 @@ class BaseAdapter(ABC):
 
         return self.connection
 
+    async def declare_exchange(self, **kwargs) -> aio_pika.Exchange:
+        if not self.channel:
+            raise AdapterError('Connection is not established: channel is none')
+
+        if not self.exchange_name:
+            raise ValueError('Exchange name is none or empty')
+
+        exchange_kwargs = dict(
+            durable=kwargs.get('durable'),
+            internal=kwargs.get('internal', False),
+            passive=kwargs.get('passive', False),
+            auto_delete=kwargs.get('auto_delete', False),
+            arguments=kwargs.get('arguments'),
+            timeout=kwargs.get('timeout')
+        )
+        if 'robust' in kwargs:
+            exchange_kwargs['robust'] = kwargs['robust']
+
+        self.logger.debug('declare_exchange:\n%s', pprint.pformat(exchange_kwargs))
+
+        self.exchange = await self.channel.declare_exchange(self.exchange_name, self.exchange_type, **exchange_kwargs)
+
+        return self.exchange
+
     async def declare_queue(self, **kwargs) -> aio_pika.Queue:
         """
         Определение очереди
         """
-        if self.channel is None:
-            raise AdapterError("Connection is not established: channel is none")
+        if not self.channel:
+            raise AdapterError('Connection is not established: channel is none')
 
         queue_kwargs = dict(
-            durable=kwargs.get('durable', None),
+            durable=kwargs.get('durable'),
             exclusive=kwargs.get('exclusive', False),
             passive=kwargs.get('passive', False),
             auto_delete=kwargs.get('auto_delete', False),
-            arguments=kwargs.get('arguments', None),
-            timeout=kwargs.get('timeout', None),
+            arguments=kwargs.get('arguments'),
+            timeout=kwargs.get('timeout'),
             robust=kwargs.get('robust', True)
         )
+
+        self.logger.debug('declare_queue:\n%s', pprint.pformat(queue_kwargs))
 
         self.queue = await self.channel.declare_queue(self.queue_name, **queue_kwargs)
 
@@ -194,17 +227,22 @@ class Publisher(BaseAdapter):
         Создание подключения для издателя
         """
         if self.channel is None:
-            raise AdapterError("Connection is not established: channel is none")
+            raise AdapterError('Connection is not established: channel is none')
+
+        if self.exchange is None:
+            raise AdapterError('Connection is not established: exchange is none')
 
         message_body = encode_message(message)
 
-        await self.channel.default_exchange.publish(
+        routing_key = kwargs.pop('routing_key', self.queue_name)
+
+        await self.exchange.publish(
             aio_pika.Message(
                 message_body,
-                content_type="application/json",
+                content_type='application/json',
                 **kwargs
             ),
-            routing_key=self.queue_name,
+            routing_key=routing_key,
         )
 
 
