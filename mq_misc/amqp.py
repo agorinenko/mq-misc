@@ -7,12 +7,24 @@ import logging
 import pprint
 import uuid
 from abc import ABC, abstractmethod
+from contextlib import asynccontextmanager
 from typing import Any, Optional, Union, Callable, Dict, Awaitable
 
 import aio_pika
 from aio_pika import ExchangeType
 
 from mq_misc.errors import AdapterError
+
+
+@asynccontextmanager
+async def create_weak_publisher(*args, **kwargs):
+    """ Инициализация издателя """
+    publisher_obj = Publisher(*args, **kwargs)
+    await publisher_obj.create_connection(robust=False)
+    try:
+        yield publisher_obj
+    finally:
+        await publisher_obj.close()
 
 
 def encode_message(message: Union[str, dict]) -> bytes:
@@ -43,7 +55,7 @@ class BaseAdapter(ABC):
                  queue_name: Optional[str] = None,
                  exchange_name: Optional[str] = None,
                  exchange_type: Union[ExchangeType, str] = ExchangeType.DIRECT,
-                 loop: Optional[asyncio.AbstractEventLoop] = asyncio.get_event_loop()):
+                 loop: Optional[asyncio.AbstractEventLoop] = None):
         if loop is None:
             loop = asyncio.get_event_loop()
 
@@ -123,9 +135,10 @@ class BaseAdapter(ABC):
             passive=kwargs.get('passive', False),
             auto_delete=kwargs.get('auto_delete', False),
             arguments=kwargs.get('arguments'),
-            timeout=kwargs.get('timeout'),
-            robust=kwargs.get('robust', True)
+            timeout=kwargs.get('timeout')
         )
+        if 'robust' in kwargs:
+            queue_kwargs['robust'] = kwargs['robust']
 
         self.logger.debug('declare_queue:\n%s', pprint.pformat(queue_kwargs))
 
@@ -168,6 +181,8 @@ class BaseConsumer(BaseAdapter, ABC):
         """
         Создание подключения для потребителя
         """
+        if robust:
+            kwargs['robust'] = True
         await self.create_connection(robust=robust, prefetch_count=prefetch_count)
         await self.declare_queue(**kwargs)
 
@@ -249,7 +264,7 @@ class Publisher(BaseAdapter):
 class ReplyToConsumer(BaseConsumer, ABC):
     """
     Reply-To потребитель,
-    который может пудликовать сообщение в произвольную очередь с указанием того, куда нужно вернуть ответ
+    который может публиковать сообщение в произвольную очередь с указанием того, куда нужно вернуть ответ
     """
     futures = None
 

@@ -6,12 +6,12 @@ python setup.py sdist bdist_wheel
 python -m twine upload --repository-url https://test.pypi.org/legacy/ dist/*
 python -m twine upload dist/*
 """
-with open("README.md", "r") as fh:
+with open('README.md', 'r', encoding='utf-8') as fh:
     long_description = fh.read()
 
 setuptools.setup(
     name="mq-misc",
-    version="0.0.2",
+    version="0.0.3",
     author="Anton Gorinenko",
     author_email="anton.gorinenko@gmail.com",
     description="Utility package for working with rabbitmq",
@@ -24,18 +24,19 @@ setuptools.setup(
         "Operating System :: OS Independent",
     ],
     install_requires=[
-        "aio_pika==6.8.0",
-        "ConfigArgParse==1.3"
+        "aio_pika>=6.8.0",
+        "ConfigArgParse>=1.3"
     ],
     extras_require={
         'test': [
             'pytest',
             'pytest-cov',
-            'pytest-aiohttp',
+            'pytest-asyncio',
             'pytest-mock',
             'pylint',
             'pytest-dotenv',
-            'envparse'
+            'envparse',
+            'asynctest',
         ]
     },
     python_requires='>=3.8',
