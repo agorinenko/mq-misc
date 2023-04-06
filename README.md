@@ -31,4 +31,4 @@ Rabbit MQ options:
                         Routing key for publish message [env var: RMQ_ROUTING_KEY] (default: None)
 
 ```
-python -m mq_misc.publish  --amqp-url "amqp://guest:guest@localhost:5672/" --exchange "state_service" --exchange_type "topic" --routing_key "Action.deploy.run.completed" --message-file "message.json"
+python -m mq_misc.publish  --amqp-url "amqp://guest:guest@localhost:5672/" --exchange "exchange_1" --exchange_type "topic" --routing_key "log.error" --message-file "message.json"
