@@ -55,3 +55,9 @@ async def test_reply_to_consumer():
         await asyncio.sleep(1)
 
         assert request_consumer.process_message.call_count == 2
+
+
+async def test_connection():
+    """ Проверка соединения """
+    async with create_weak_publisher(url) as publisher:
+        assert publisher.connection.connection.is_opened

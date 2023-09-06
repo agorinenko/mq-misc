@@ -8,7 +8,7 @@ import pprint
 import uuid
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
-from typing import Any, Optional, Union, Callable, Dict, Awaitable
+from typing import Any, Optional, Union
 
 import aio_pika
 from aio_pika import ExchangeType
