@@ -58,3 +58,9 @@ Rabbit MQ options:
 
 python -m mq_misc.publish --amqp-url "amqp://guest:guest@localhost:5672/" --exchange "exchange_1" --exchange_type "
 topic" --routing_key "log.error" --message-file "message.json"
+
+### Creating release tags
+
+```
+git tag -a 0.0.6 -m "Release 0.0.6"
+```
