@@ -8,12 +8,14 @@ import pprint
 import uuid
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, List
 
 import aio_pika
 from aio_pika import ExchangeType
 
 from mq_misc.errors import AdapterError
+
+DEFAULT_LOGGER = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -46,6 +48,21 @@ def decode_message(message: aio_pika.IncomingMessage) -> Any:
     return data
 
 
+def start_server(async_task, loop: Optional[asyncio.AbstractEventLoop] = None):
+    """
+    Старт задачи, в которой будет прослушиваться очередь
+    :param loop: event loop
+    :param async_task: задача
+    :return:
+    """
+    if loop is None:
+        loop = asyncio.get_event_loop()
+
+    loop.create_task(async_task(loop))
+
+    loop.run_forever()
+
+
 class BaseAdapter(ABC):
     """
     Базовый адаптер очереди сообщений
@@ -55,9 +72,13 @@ class BaseAdapter(ABC):
                  queue_name: Optional[str] = None,
                  exchange_name: Optional[str] = None,
                  exchange_type: Union[ExchangeType, str] = ExchangeType.DIRECT,
-                 loop: Optional[asyncio.AbstractEventLoop] = None):
+                 loop: Optional[asyncio.AbstractEventLoop] = None,
+                 logger: Optional[logging.Logger] = None):
         if loop is None:
             loop = asyncio.get_event_loop()
+
+        if logger is None:
+            self.logger = DEFAULT_LOGGER
 
         self.loop = loop
         self.url = url
@@ -73,21 +94,17 @@ class BaseAdapter(ABC):
         self.exchange_name = exchange_name
         self.exchange_type = exchange_type
 
-    async def create_connection(self,
-                                robust: Optional[bool] = True,
-                                prefetch_count: Optional[int] = 0) -> aio_pika.Connection:
+    async def create_connection(self, robust: Optional[bool] = True,
+                                prefetch_count: Optional[int] = 0,
+                                ssl: Optional[bool] = False,
+                                ssl_options: Optional[dict] = None) -> aio_pika.Connection:
         """
         Создание подключения
         """
         if self.connection is None:
-            if robust:
-                self.connection = await aio_pika.connect_robust(
-                    self.url,
-                    loop=self.loop)
-            else:
-                self.connection = await aio_pika.connect(
-                    self.url,
-                    loop=self.loop)
+            connect_fn = aio_pika.connect_robust if robust else aio_pika.connect
+
+            self.connection = await connect_fn(self.url, loop=self.loop, ssl=ssl, ssl_options=ssl_options)
 
         if self.channel is None:
             self.channel = await self.connection.channel()
@@ -98,51 +115,54 @@ class BaseAdapter(ABC):
 
         return self.connection
 
-    async def declare_exchange(self, **kwargs) -> aio_pika.Exchange:
+    async def declare_exchange(self, durable: Optional[bool] = None, internal: Optional[bool] = False,
+                               passive: Optional[bool] = False, auto_delete: Optional[bool] = False,
+                               arguments: Optional[dict] = None, timeout: Optional[Union[int, float]] = None,
+                               **kwargs) -> aio_pika.Exchange:
+        """
+        Определение обменника
+        """
         if not self.channel:
             raise AdapterError('Connection is not established: channel is none')
 
         if not self.exchange_name:
             raise ValueError('Exchange name is none or empty')
 
-        exchange_kwargs = dict(
-            durable=kwargs.get('durable'),
-            internal=kwargs.get('internal', False),
-            passive=kwargs.get('passive', False),
-            auto_delete=kwargs.get('auto_delete', False),
-            arguments=kwargs.get('arguments'),
-            timeout=kwargs.get('timeout')
-        )
+        exchange_kwargs = dict(durable=durable, internal=internal, passive=passive, auto_delete=auto_delete,
+                               arguments=arguments, timeout=timeout)
+
         if 'robust' in kwargs:
             exchange_kwargs['robust'] = kwargs['robust']
 
-        self.logger.debug('declare_exchange:\n%s', pprint.pformat(exchange_kwargs))
+        self.logger.debug('Declare exchange: %s', pprint.pformat(exchange_kwargs))
 
         self.exchange = await self.channel.declare_exchange(self.exchange_name, self.exchange_type, **exchange_kwargs)
 
         return self.exchange
 
-    async def declare_queue(self, **kwargs) -> aio_pika.Queue:
+    async def declare_queue(self, durable: Optional[bool] = None, exclusive: Optional[bool] = False,
+                            passive: Optional[bool] = False, auto_delete: Optional[bool] = False,
+                            arguments: Optional[dict] = None, timeout: Optional[Union[int, float]] = None,
+                            binding_keys: Optional[List[str]] = None, **kwargs) -> aio_pika.Queue:
         """
         Определение очереди
         """
         if not self.channel:
             raise AdapterError('Connection is not established: channel is none')
 
-        queue_kwargs = dict(
-            durable=kwargs.get('durable'),
-            exclusive=kwargs.get('exclusive', False),
-            passive=kwargs.get('passive', False),
-            auto_delete=kwargs.get('auto_delete', False),
-            arguments=kwargs.get('arguments'),
-            timeout=kwargs.get('timeout')
-        )
+        queue_kwargs = dict(durable=durable, exclusive=exclusive, passive=passive, auto_delete=auto_delete,
+                            arguments=arguments, timeout=timeout)
+
         if 'robust' in kwargs:
             queue_kwargs['robust'] = kwargs['robust']
 
-        self.logger.debug('declare_queue:\n%s', pprint.pformat(queue_kwargs))
+        self.logger.debug('Declare queue: %s', pprint.pformat(queue_kwargs))
 
         self.queue = await self.channel.declare_queue(self.queue_name, **queue_kwargs)
+
+        if binding_keys:
+            for binding_key in binding_keys:
+                await self.queue.bind(self.exchange, routing_key=binding_key)
 
         return self.queue
 
@@ -169,21 +189,38 @@ class BaseConsumer(BaseAdapter, ABC):
     """
 
     @abstractmethod
-    async def process_message(self, body: dict, raw_message: aio_pika.IncomingMessage) -> None:
+    async def process_message(self, body: dict, raw_message: aio_pika.IncomingMessage,
+                              message_id: Optional[uuid.UUID] = None) -> None:
         """
         Обработка подготовленного и провалидированного Json сообщения
         """
-        raise NotImplementedError("Not implemented process_message method")
+        raise NotImplementedError('Not implemented process_message method')
 
     async def create_consume_connection(self, robust: Optional[bool] = True,
                                         prefetch_count: Optional[int] = 0,
+                                        ssl: Optional[bool] = False,
+                                        ssl_options: Optional[dict] = None,
+                                        declare_exchange: Optional[bool] = False,
+                                        exchange_kwargs: Optional[dict] = None,
                                         **kwargs) -> aio_pika.Connection:
         """
         Создание подключения для потребителя
         """
         if robust:
             kwargs['robust'] = True
-        await self.create_connection(robust=robust, prefetch_count=prefetch_count)
+
+        await self.create_connection(robust=robust, prefetch_count=prefetch_count, ssl=ssl, ssl_options=ssl_options)
+
+        if declare_exchange:
+            exchange_kwargs = exchange_kwargs or {}
+            if robust:
+                exchange_kwargs['robust'] = True
+
+            if 'durable' in kwargs:
+                exchange_kwargs['durable'] = kwargs['durable']
+
+            await self.declare_exchange(**exchange_kwargs)
+
         await self.declare_queue(**kwargs)
 
         consume_kwargs = dict(
@@ -191,7 +228,7 @@ class BaseConsumer(BaseAdapter, ABC):
         )
 
         if self.queue is None:
-            raise AdapterError("Connection is not established: queue is none")
+            raise AdapterError('Connection is not established: queue is none')
 
         await self.queue.consume(self._handle_delivery, **consume_kwargs)
 
@@ -201,13 +238,22 @@ class BaseConsumer(BaseAdapter, ABC):
         """
         Обработка полученного сообщения
         """
+        message_id = uuid.uuid4()
+        self.logger.debug('[%s] Start message process', message_id)
+
         async with message.process():
             try:
                 message_json = decode_message(message)
 
-                await self.process_message(message_json, message)
+                self.logger.debug('[%s] routing_key: %s', message_id, message.routing_key)
+                self.logger.debug('[%s] body: %s', message_id, pprint.pformat(message_json))
+
+                await self.process_message(message_json, message, message_id)
+
             except Exception as ex:
                 await self._on_handle_delivery_error(ex, message)
+            finally:
+                self.logger.debug('[%s] End message process', message_id)
 
     async def _on_handle_delivery_error(self, ex: Exception,
                                         raw_message: aio_pika.IncomingMessage) -> None:
@@ -215,6 +261,7 @@ class BaseConsumer(BaseAdapter, ABC):
         Произошла ошибка при обработке полученного сообщения
         """
         self.logger.error(ex, exc_info=True)
+        raise ex
 
     async def publish_response(self, incoming_message: aio_pika.IncomingMessage, message: Union[str, dict]):
         if self.channel is None:
@@ -223,11 +270,8 @@ class BaseConsumer(BaseAdapter, ABC):
         message_body = encode_message(message)
 
         await self.channel.default_exchange.publish(
-            aio_pika.Message(
-                message_body,
-                content_type="application/json",
-                correlation_id=incoming_message.correlation_id
-            ),
+            aio_pika.Message(message_body, content_type='application/json',
+                             correlation_id=incoming_message.correlation_id),
             routing_key=incoming_message.reply_to,
         )
 
@@ -251,14 +295,8 @@ class Publisher(BaseAdapter):
 
         routing_key = kwargs.pop('routing_key', self.queue_name)
 
-        await self.exchange.publish(
-            aio_pika.Message(
-                message_body,
-                content_type='application/json',
-                **kwargs
-            ),
-            routing_key=routing_key,
-        )
+        await self.exchange.publish(aio_pika.Message(message_body, content_type='application/json', **kwargs),
+                                    routing_key=routing_key)
 
 
 class ReplyToConsumer(BaseConsumer, ABC):

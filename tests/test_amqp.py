@@ -10,17 +10,17 @@ queue_name = 'test'
 
 
 class ResponseConsumer(BaseConsumer):
-    async def process_message(self, body: dict, raw_message: aio_pika.IncomingMessage) -> None:
+    async def process_message(self, body: dict, raw_message: aio_pika.IncomingMessage, **kwargs) -> None:
         await self.publish_response(raw_message, {'response': True})
 
 
 class RequestConsumer(ReplyToConsumer):
-    async def process_message(self, body: dict, raw_message: aio_pika.IncomingMessage) -> None:
+    async def process_message(self, body: dict, raw_message: aio_pika.IncomingMessage, **kwargs) -> None:
         pass
 
 
 class MyTestConsumer(BaseConsumer):
-    async def process_message(self, body: dict, raw_message: aio_pika.IncomingMessage) -> None:
+    async def process_message(self, body: dict, raw_message: aio_pika.IncomingMessage, **kwargs) -> None:
         pass
 
 

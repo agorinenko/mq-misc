@@ -33,7 +33,7 @@ logger = logging.getLogger('PUBLISH MESSAGE')
 
 
 class SimpleReplyToConsumer(ReplyToConsumer):
-    async def process_message(self, body: dict, raw_message: aio_pika.IncomingMessage) -> None:
+    async def process_message(self, body: dict, raw_message: aio_pika.IncomingMessage, **kwargs) -> None:
         logger.info('Response...\n%s', pprint.pformat(body))
 
 
