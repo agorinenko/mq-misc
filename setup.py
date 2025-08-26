@@ -11,7 +11,7 @@ with open('README.md', 'r', encoding='utf-8') as fh:
 
 setuptools.setup(
     name="mq-misc",
-    version="0.0.9",
+    version="0.0.10",
     author="Anton Gorinenko",
     author_email="anton.gorinenko@gmail.com",
     description="Utility package for working with rabbitmq",

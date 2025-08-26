@@ -8,10 +8,12 @@ import pprint
 import uuid
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
+from ssl import SSLContext
 from typing import Any, Optional, Union, List
 
 import aio_pika
 from aio_pika import ExchangeType
+from aio_pika.abc import SSLOptions
 
 from mq_misc.errors import AdapterError
 
@@ -19,10 +21,14 @@ DEFAULT_LOGGER = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def create_weak_publisher(*args, **kwargs):
+async def create_weak_publisher(*args, prefetch_count: Optional[int] = 0,
+                                ssl: Optional[bool] = False,
+                                ssl_options: Optional[SSLOptions] = None,
+                                ssl_context: Optional[SSLContext] = None, **kwargs):
     """ Инициализация издателя """
     publisher_obj = Publisher(*args, **kwargs)
-    await publisher_obj.create_connection(robust=False)
+    await publisher_obj.create_connection(robust=False, prefetch_count=prefetch_count, ssl=ssl,
+                                          ssl_options=ssl_options, ssl_context=ssl_context)
     try:
         yield publisher_obj
     finally:
@@ -97,14 +103,16 @@ class BaseAdapter(ABC):
     async def create_connection(self, robust: Optional[bool] = True,
                                 prefetch_count: Optional[int] = 0,
                                 ssl: Optional[bool] = False,
-                                ssl_options: Optional[dict] = None) -> aio_pika.Connection:
+                                ssl_options: Optional[SSLOptions] = None,
+                                ssl_context: Optional[SSLContext] = None) -> aio_pika.Connection:
         """
         Создание подключения
         """
         if self.connection is None:
             connect_fn = aio_pika.connect_robust if robust else aio_pika.connect
 
-            self.connection = await connect_fn(self.url, loop=self.loop, ssl=ssl, ssl_options=ssl_options)
+            self.connection = await connect_fn(self.url, loop=self.loop, ssl=ssl,
+                                               ssl_options=ssl_options, ssl_context=ssl_context)
 
         if self.channel is None:
             self.channel = await self.connection.channel()
@@ -199,7 +207,8 @@ class BaseConsumer(BaseAdapter, ABC):
     async def create_consume_connection(self, robust: Optional[bool] = True,
                                         prefetch_count: Optional[int] = 0,
                                         ssl: Optional[bool] = False,
-                                        ssl_options: Optional[dict] = None,
+                                        ssl_options: Optional[SSLOptions] = None,
+                                        ssl_context: Optional[SSLContext] = None,
                                         declare_exchange: Optional[bool] = False,
                                         exchange_kwargs: Optional[dict] = None,
                                         **kwargs) -> aio_pika.Connection:
@@ -209,7 +218,8 @@ class BaseConsumer(BaseAdapter, ABC):
         if robust:
             kwargs['robust'] = True
 
-        await self.create_connection(robust=robust, prefetch_count=prefetch_count, ssl=ssl, ssl_options=ssl_options)
+        await self.create_connection(robust=robust, prefetch_count=prefetch_count, ssl=ssl,
+                                     ssl_options=ssl_options, ssl_context=ssl_context)
 
         if declare_exchange:
             exchange_kwargs = exchange_kwargs or {}
