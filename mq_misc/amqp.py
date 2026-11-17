@@ -196,6 +196,11 @@ class BaseConsumer(BaseAdapter, ABC):
     Базовый потребитель очереди сообщений
     """
 
+    # Тело сообщения логируется по умолчанию (прежнее поведение).
+    # Для больших сообщений pprint.pformat может быть дорогим,
+    # поэтому наследник может отключить логирование: log_message_body = False.
+    log_message_body = True
+
     @abstractmethod
     async def process_message(self, body: dict, raw_message: aio_pika.IncomingMessage,
                               message_id: Optional[uuid.UUID] = None) -> None:
@@ -203,6 +208,14 @@ class BaseConsumer(BaseAdapter, ABC):
         Обработка подготовленного и провалидированного Json сообщения
         """
         raise NotImplementedError('Not implemented process_message method')
+
+    def decode_message(self, message: aio_pika.IncomingMessage) -> Any:
+        """
+        Декодирование тела сообщения.
+        Наследник может переопределить метод, чтобы извлекать только необходимые поля,
+        не материализуя всё тело сообщения.
+        """
+        return decode_message(message)
 
     async def create_consume_connection(self, robust: Optional[bool] = True,
                                         prefetch_count: Optional[int] = 0,
@@ -253,10 +266,12 @@ class BaseConsumer(BaseAdapter, ABC):
 
         async with message.process():
             try:
-                message_json = decode_message(message)
+                message_json = self.decode_message(message)
 
-                self.logger.debug('[%s] routing_key: %s', message_id, message.routing_key)
-                self.logger.debug('[%s] body: %s', message_id, pprint.pformat(message_json))
+                self.logger.debug('[%s] routing_key: %s; body_size: %s; redelivered: %s', message_id,
+                                  message.routing_key, message.body_size, message.redelivered)
+                if self.log_message_body and self.logger.isEnabledFor(logging.DEBUG):
+                    self.logger.debug('[%s] body: %s', message_id, pprint.pformat(message_json))
 
                 await self.process_message(message_json, message, message_id)
 
