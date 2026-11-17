@@ -1,121 +1,143 @@
-# RabbitMQ Utils
+# Утилиты RabbitMQ
 
-## The basic API for working with RabbitMQ
+## Базовое API для работы с RabbitMQ
 
-``BaseConsumer`` - the basic consumer of the message queue  
-``Publisher`` - the basic publisher of the message queue
-``ReplyToConsumer`` - reply to consumer
+``BaseConsumer`` — базовый потребитель очереди сообщений  
+``Publisher`` — базовый издатель сообщений в очередь  
+``ReplyToConsumer`` — потребитель с ответом (reply-to)
 
-## MQ commands
+### Декодирование сообщений потребителем
 
-### Publish message
+По умолчанию ``BaseConsumer`` декодирует всё тело сообщения через ``json.loads``.
+Потребитель может переопределить ``decode_message``, чтобы извлекать только нужные поля,
+не материализуя всё тело (например, с помощью потокового JSON-парсера):
 
-Publishing a message to the queue
+```python
+class TriggerConsumer(BaseConsumer):
+    def decode_message(self, message):
+        return extract_trigger_fields(message.body)
+```
+
+Тело сообщения по умолчанию логируется (прежнее поведение). Для больших сообщений
+``pprint.pformat`` может потреблять много памяти и CPU, поэтому логирование можно
+отключить в потребителе:
+
+```python
+class QuietConsumer(BaseConsumer):
+    log_message_body = False
+```
+
+## Команды MQ
+
+### Публикация сообщения
+
+Публикация сообщения в очередь
 
 ```
-python -m mq_misc.publish [-h] [-m MESSAGE] [-f MESSAGE_FILE] -url AMQP_URL
+использование: python -m mq_misc.publish [-h] [-m MESSAGE] [-f MESSAGE_FILE] -url AMQP_URL
                    [-q QUEUE] [-e EXCHANGE] [--exchange_type EXCHANGE_TYPE]
                    [-k ROUTING_KEY] [-to REPLY_TO] [-id CORRELATION_ID] [-w]
 
-optional arguments:
-  -h, --help            show this help message and exit
+необязательные аргументы:
+  -h, --help            показать это сообщение и выйти
   -m MESSAGE, --message MESSAGE
-                        The message being sent [env var: RMQ_MESSAGE]
-                        (default: None)
+                        Отправляемое сообщение [переменная окружения: RMQ_MESSAGE]
+                        (по умолчанию: None)
   -f MESSAGE_FILE, --message-file MESSAGE_FILE
-                        File with the message [env var: RMQ_MESSAGE_FILE]
-                        (default: None)
+                        Файл с сообщением [переменная окружения: RMQ_MESSAGE_FILE]
+                        (по умолчанию: None)
   -to REPLY_TO, --reply_to REPLY_TO
-                        Commonly used to name a callback queue [env var:
-                        RMQ_REPLY_TO] (default: None)
+                        Обычно используется для имени очереди ответа [переменная
+                        окружения: RMQ_REPLY_TO] (по умолчанию: None)
   -id CORRELATION_ID, --correlation_id CORRELATION_ID
-                        Useful to correlate RPC responses with requests. [env
-                        var: RMQ_CORRELATION_ID] (default: None)
+                        Полезно для сопоставления RPC-ответов с запросами.
+                        [переменная окружения: RMQ_CORRELATION_ID]
+                        (по умолчанию: None)
   -w, --waiting_response
-                        Waiting reply_to response. [env var:
-                        RMQ_WAITING_RESPONSE] (default: False)
+                        Ожидать ответ в reply_to. [переменная окружения:
+                        RMQ_WAITING_RESPONSE] (по умолчанию: False)
 
-Rabbit MQ options:
+Параметры RabbitMQ:
   -url AMQP_URL, --amqp-url AMQP_URL
-                        URL to use to connect to the rabbitmq [env var:
-                        RMQ_AMQP_URL] (default: None)
+                        URL для подключения к RabbitMQ [переменная окружения:
+                        RMQ_AMQP_URL] (по умолчанию: None)
   -q QUEUE, --queue QUEUE
-                        Queue to use to connect to the rabbitmq [env var:
-                        RMQ_QUEUE] (default: None)
+                        Очередь для подключения к RabbitMQ [переменная окружения:
+                        RMQ_QUEUE] (по умолчанию: None)
   -e EXCHANGE, --exchange EXCHANGE
-                        Exchange to use to connect to the rabbitmq [env var:
-                        RMQ_EXCHANGE] (default: None)
+                        Exchange для подключения к RabbitMQ [переменная окружения:
+                        RMQ_EXCHANGE] (по умолчанию: None)
   --exchange_type EXCHANGE_TYPE
-                        Exchange type to use to connect to the rabbitmq [env
-                        var: RMQ_EXCHANGE_TYPE] (default: direct)
+                        Тип exchange для подключения к RabbitMQ [переменная
+                        окружения: RMQ_EXCHANGE_TYPE] (по умолчанию: direct)
   -k ROUTING_KEY, --routing_key ROUTING_KEY
-                        Routing key for publish message [env var:
-                        RMQ_ROUTING_KEY] (default: None)
+                        Routing key для публикуемого сообщения [переменная
+                        окружения: RMQ_ROUTING_KEY] (по умолчанию: None)
 
 
 ```
 
-For example
+Пример
 
 ```
 python -m mq_misc.publish -u "amqp://guest:guest@localhost:5672/" -e "exchange_1" --exchange_type "topic" --routing_key "log.error" -f "message.json" -w
 python -m mq_misc.publish -u "amqp://guest:guest@localhost:5672/" -q "queue_1" -f "message.json" -w
 ```
 
-## Consume message
+## Получение сообщений
 
-Consuming a message from the queue
+Получение сообщения из очереди
 
 ```
-usage: python -m mq_misc.consume [-h] -url AMQP_URL [-q QUEUE] [-e EXCHANGE]
+использование: python -m mq_misc.consume [-h] -url AMQP_URL [-q QUEUE] [-e EXCHANGE]
                    [--exchange_type EXCHANGE_TYPE] [--ssl SSL]
                    [--durable DURABLE] [--robust ROBUST]
                    [--declare_exchange DECLARE_EXCHANGE] [-b BINDING_KEYS]
                    [-pc PREFETCH_COUNT]
 
-If an arg is specified in more than one place, then commandline values
-override environment variables which override defaults.
+Если аргумент указан в нескольких местах, значения из командной строки
+переопределяют переменные окружения, которые переопределяют значения по умолчанию.
 
-optional arguments:
-  -h, --help            show this help message and exit
+необязательные аргументы:
+  -h, --help            показать это сообщение и выйти
 
-Rabbit MQ options:
+Параметры RabbitMQ:
   -url AMQP_URL, --amqp-url AMQP_URL
-                        URL to use to connect to the rabbitmq [env var:
-                        RMQ_AMQP_URL] (default: None)
+                        URL для подключения к RabbitMQ [переменная окружения:
+                        RMQ_AMQP_URL] (по умолчанию: None)
   -q QUEUE, --queue QUEUE
-                        Queue to use to connect to the rabbitmq [env var:
-                        RMQ_QUEUE] (default: None)
+                        Очередь для подключения к RabbitMQ [переменная окружения:
+                        RMQ_QUEUE] (по умолчанию: None)
   -e EXCHANGE, --exchange EXCHANGE
-                        Exchange to use to connect to the rabbitmq [env var:
-                        RMQ_EXCHANGE] (default: None)
+                        Exchange для подключения к RabbitMQ [переменная окружения:
+                        RMQ_EXCHANGE] (по умолчанию: None)
   --exchange_type EXCHANGE_TYPE
-                        Exchange type to use to connect to the rabbitmq [env
-                        var: RMQ_EXCHANGE_TYPE] (default: direct)
-  --ssl SSL             Use SSL for connection. [env var: RMQ_SSL] (default:
-                        false)
-  --durable DURABLE     Use durable connection. [env var: RMQ_DURABLE]
-                        (default: false)
-  --robust ROBUST       Make robust connection to the broker. [env var:
-                        RMQ_ROBUST] (default: false)
+                        Тип exchange для подключения к RabbitMQ [переменная
+                        окружения: RMQ_EXCHANGE_TYPE] (по умолчанию: direct)
+  --ssl SSL             Использовать SSL для подключения. [переменная окружения:
+                        RMQ_SSL] (по умолчанию: false)
+  --durable DURABLE     Использовать durable-соединение. [переменная окружения:
+                        RMQ_DURABLE] (по умолчанию: false)
+  --robust ROBUST       Создать robust-соединение с брокером. [переменная
+                        окружения: RMQ_ROBUST] (по умолчанию: false)
   --declare_exchange DECLARE_EXCHANGE
-                        Declare an exchange. [env var: RMQ_DECLARE_EXCHANGE]
-                        (default: false)
+                        Объявить exchange. [переменная окружения:
+                        RMQ_DECLARE_EXCHANGE] (по умолчанию: false)
   -b BINDING_KEYS, --binding_keys BINDING_KEYS
-                        Binding keys separated by commas. [env var:
-                        RMQ_BINDING_KEYS] (default: None)
+                        Binding keys через запятую. [переменная окружения:
+                        RMQ_BINDING_KEYS] (по умолчанию: None)
   -pc PREFETCH_COUNT, --prefetch_count PREFETCH_COUNT
-                        Consumer prefetch [env var: RMQ_PREFETCH_COUNT]
-                        (default: 10)
+                        Prefetch потребителя [переменная окружения:
+                        RMQ_PREFETCH_COUNT] (по умолчанию: 10)
 ```
 
-For example
+Пример
 
 ```
 python -m mq_misc.consume -u "amqp://guest:guest@localhost:5672/" -q "queue_1" -e "exchange_1" --exchange_type "topic" -b "log.level.*"  --durable "true" --robust "true" --declare_exchange "true"
 ```
 
-## Creating release tags
+## Создание тегов релиза
 
 ```
 git tag -a 0.0.6 -m "Release 0.0.6"
