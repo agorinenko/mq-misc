@@ -1,4 +1,5 @@
 import asyncio
+import os
 import uuid
 from unittest.mock import AsyncMock
 
@@ -6,7 +7,7 @@ import aio_pika
 
 from mq_misc.amqp import BaseConsumer, ReplyToConsumer, create_weak_publisher
 
-url = 'amqp://guest:guest@localhost:5672/'
+url = os.environ.get('MQ_MISC_TEST_AMQP_URL', 'amqp://guest:guest@localhost:5672/')
 
 
 def make_queue_name() -> str:
@@ -41,7 +42,7 @@ async def test_consumer():
     queue_name = make_queue_name()
     consumer = MyTestConsumer(url, queue_name)
     consumer.process_message = AsyncMock(return_value=None)
-    await consumer.create_consume_connection(robust=False, auto_delete=True)
+    await consumer.create_consume_connection(robust=False, durable=True, auto_delete=True)
 
     try:
         async with create_weak_publisher(url, queue_name) as publisher:
@@ -60,7 +61,7 @@ async def test_reply_to_consumer():
     reply_to_queue_name = make_queue_name()
 
     response_consumer = ResponseConsumer(url, queue_name)
-    await response_consumer.create_consume_connection(robust=False, auto_delete=True)
+    await response_consumer.create_consume_connection(robust=False, durable=True, auto_delete=True)
 
     try:
         async with create_weak_publisher(url, queue_name) as publisher:

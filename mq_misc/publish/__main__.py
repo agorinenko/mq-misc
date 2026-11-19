@@ -2,8 +2,6 @@ import argparse
 import asyncio
 import logging
 import pprint
-import uuid
-from typing import Optional
 
 import aio_pika
 from aio_pika import DeliveryMode
@@ -92,6 +90,7 @@ async def async_main(args):
         logger.info('OK...')
     except Exception as ex:
         logger.exception(ex)
+        raise
 
 
 def main():
@@ -99,9 +98,7 @@ def main():
 
     args = parser.parse_args()
 
-    loop = asyncio.get_event_loop()
-
-    loop.run_until_complete(async_main(args))
+    asyncio.run(async_main(args))
 
 
 if __name__ == '__main__':

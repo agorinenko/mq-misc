@@ -1,7 +1,7 @@
 import setuptools
 """
-python -m pip install --upgrade setuptools wheel twine
-python setup.py sdist bdist_wheel
+python -m pip install --upgrade build twine
+python -m build
 
 python -m twine upload --repository-url https://test.pypi.org/legacy/ dist/*
 python -m twine upload dist/*
@@ -11,7 +11,7 @@ with open('README.md', 'r', encoding='utf-8') as fh:
 
 setuptools.setup(
     name="mq-misc",
-    version="0.0.11",
+    version="0.1.0",
     author="Anton Gorinenko",
     author_email="anton.gorinenko@gmail.com",
     description="Utility package for working with rabbitmq",
@@ -20,11 +20,17 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     packages=setuptools.find_packages(exclude=['tests']),
     classifiers=[
-        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3 :: Only",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
+        "Programming Language :: Python :: 3.14",
         "Operating System :: OS Independent",
     ],
     install_requires=[
-        "aio_pika>=6.8.0",
+        "aio_pika>=9.6.0",
         "ConfigArgParse>=1.3"
     ],
     extras_require={
@@ -35,9 +41,7 @@ setuptools.setup(
             'pytest-mock',
             'pylint',
             'pytest-dotenv',
-            'envparse',
-            'asynctest',
         ]
     },
-    python_requires='>=3.8',
+    python_requires='>=3.10',
 )
