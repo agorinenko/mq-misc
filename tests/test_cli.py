@@ -4,7 +4,9 @@ import sys
 import pytest
 
 from mq_misc.consume.__main__ import _run as consume_run
+from mq_misc.consume.__main__ import async_main as consume_async_main
 from mq_misc.consume.__main__ import main as consume_main
+from mq_misc.consume.__main__ import parser as consume_parser
 from mq_misc.publish.__main__ import main as publish_main
 
 URL = 'amqp://guest:guest@localhost:5672/'
@@ -76,3 +78,25 @@ def test_consume_main__handles_keyboard_interrupt(mocker):
     mocker.patch('mq_misc.consume.__main__.asyncio.run', side_effect=raise_keyboard_interrupt)
 
     consume_main()
+
+
+async def test_consume_async_main__durable_by_default(mocker):
+    """По умолчанию consumer объявляет durable-очередь."""
+    consumer = mocker.Mock()
+    consumer.create_consume_connection = mocker.AsyncMock()
+    args = consume_parser.parse_args(['-url', URL])
+
+    await consume_async_main(consumer, args)
+
+    assert consumer.create_consume_connection.await_args.kwargs['durable'] is True
+
+
+async def test_consume_async_main__durable_can_be_disabled(mocker):
+    """Явный --durable false переопределяет durable-дефолт."""
+    consumer = mocker.Mock()
+    consumer.create_consume_connection = mocker.AsyncMock()
+    args = consume_parser.parse_args(['-url', URL, '--durable', 'false'])
+
+    await consume_async_main(consumer, args)
+
+    assert consumer.create_consume_connection.await_args.kwargs['durable'] is False

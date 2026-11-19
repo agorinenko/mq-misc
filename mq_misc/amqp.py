@@ -169,12 +169,14 @@ class BaseAdapter(ABC):
 
         return self.exchange
 
-    async def declare_queue(self, durable: Optional[bool] = None, exclusive: Optional[bool] = False,
+    async def declare_queue(self, durable: Optional[bool] = True, exclusive: Optional[bool] = False,
                             passive: Optional[bool] = False, auto_delete: Optional[bool] = False,
                             arguments: Optional[dict] = None, timeout: Optional[Union[int, float]] = None,
                             binding_keys: Optional[List[str]] = None, **kwargs) -> aio_pika.Queue:
         """
-        Определение очереди
+        Определение очереди.
+        По умолчанию очередь durable: RabbitMQ 4.3+ не разрешает
+        non-durable не-exclusive очереди.
         """
         if not self.channel:
             raise AdapterError('Connection is not established: channel is none')

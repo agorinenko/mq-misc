@@ -22,7 +22,7 @@ group.add_argument('--exchange_type', required=False, help='Exchange type to use
                    default='direct')
 
 group.add_argument('--ssl', required=False, default='false', help='Use SSL for connection.')
-group.add_argument('--durable', required=False, default='false', help='Use durable connection.')
+group.add_argument('--durable', required=False, default='true', help='Declare a durable queue.')
 group.add_argument('--robust', required=False, default='false', help='Make robust connection to the broker.')
 group.add_argument('--declare_exchange', required=False, default='false', help='Declare an exchange.')
 group.add_argument('-b', '--binding_keys', required=False, help='Binding keys separated by commas.')
@@ -57,7 +57,7 @@ async def async_main(consumer, args):
         params = {
             'prefetch_count': args.prefetch_count,
             'ssl': False,
-            'durable': False,
+            'durable': True,
             'robust': False,
             'declare_exchange': False
         }

@@ -118,6 +118,10 @@ asyncio.run(main())
 `exchange_kwargs`, а также параметры объявления очереди (`durable`, `exclusive`,
 `auto_delete`, `binding_keys`, `no_ack`).
 
+`declare_queue` по умолчанию объявляет durable-очередь (`durable=True`). Это
+совместимо с RabbitMQ 4.3+, где non-durable non-exclusive очереди запрещены.
+Для transient-очередей используйте `exclusive=True`.
+
 ### Reply-to потребитель
 
 `ReplyToConsumer` публикует сообщение и ждёт ответ в собственной эксклюзивной
@@ -304,8 +308,8 @@ Rabbit MQ options:
                         var: RMQ_EXCHANGE_TYPE] (default: direct)
   --ssl SSL             Use SSL for connection. [env var: RMQ_SSL] (default:
                         false)
-  --durable DURABLE     Use durable connection. [env var: RMQ_DURABLE]
-                        (default: false)
+  --durable DURABLE     Declare a durable queue. [env var: RMQ_DURABLE]
+                        (default: true)
   --robust ROBUST       Make robust connection to the broker. [env var:
                         RMQ_ROBUST] (default: false)
   --declare_exchange DECLARE_EXCHANGE
@@ -324,6 +328,11 @@ defaults.
 
 `--ssl`, `--durable`, `--robust`, `--declare_exchange` принимают значение:
 `yes`, `true`, `t`, `1`, `no`, `false`, `f`, `0`.
+
+`--durable` по умолчанию `true`. Начиная с RabbitMQ 4.3 non-durable
+non-exclusive очереди отклоняются, поэтому `--durable false` на 4.3+ приведёт
+к ошибке `transient_nonexcl_queues`. Transient-очереди допустимы только как
+exclusive — через API (`exclusive=True`).
 
 Пример:
 

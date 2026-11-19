@@ -11,6 +11,10 @@
   `adapter.loop` вне корутины вызывает `RuntimeError`.
 - Из тестовых extras удалены `asynctest` и `envparse` (не использовались,
   `asynctest` несовместим с Python 3.14).
+- `BaseAdapter.declare_queue` и CLI consume теперь по умолчанию объявляют
+  durable-очередь (`durable=True`, у `--durable` default `true`). Прежнее
+  поведение доступно явно, но `durable=False, exclusive=False` на RabbitMQ 4.3+
+  отклоняется.
 
 ### Fixed
 
@@ -22,6 +26,8 @@
   процесс завершается с ненулевым кодом.
 - CLI consume корректно завершается по Ctrl+C (раньше `run_forever()` запускался
   повторно) и не зависает при ошибке подключения.
+- Совместимость с RabbitMQ 4.3+: consume и интеграционные тесты по умолчанию
+  создают durable-очереди и не попадают под запрет `transient_nonexcl_queues`.
 
 ### Changed
 
@@ -32,6 +38,8 @@
 - Интеграционные тесты читают адрес брокера из `MQ_MISC_TEST_AMQP_URL`
   (по умолчанию `amqp://guest:guest@localhost:5672/`).
 - `pytest.ini`: задан `asyncio_default_fixture_loop_scope=function`.
+- Интеграционные тесты явно объявляют `durable=True`; добавлены unit-тесты
+  durable-дефолта `declare_queue` и `consume.async_main`.
 
 ### Added
 
@@ -48,3 +56,5 @@
 - Исправлены примеры CLI: несуществующий `-u` заменён на `-url`/`--amqp-url`.
 - Описаны ранее не документированные `ssl_options`, `ssl_context`,
   `decode_message`, `log_message_body`.
+- README: описан durable-дефолт очередей и ограничение RabbitMQ 4.3+ для
+  `--durable false`.
