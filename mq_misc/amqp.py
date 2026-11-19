@@ -57,12 +57,16 @@ def decode_message(message: aio_pika.IncomingMessage) -> Any:
 def start_server(async_task, loop: Optional[asyncio.AbstractEventLoop] = None):
     """
     Старт задачи, в которой будет прослушиваться очередь
+
+    Если loop не передан, создаётся новый event loop: начиная с Python 3.14
+    asyncio.get_event_loop() больше не создаёт loop автоматически.
     :param loop: event loop
     :param async_task: задача
     :return:
     """
     if loop is None:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
     loop.create_task(async_task(loop))
 
@@ -80,13 +84,14 @@ class BaseAdapter(ABC):
                  exchange_type: Union[ExchangeType, str] = ExchangeType.DIRECT,
                  loop: Optional[asyncio.AbstractEventLoop] = None,
                  logger: Optional[logging.Logger] = None):
-        if loop is None:
-            loop = asyncio.get_event_loop()
+        # Event loop резолвится лениво: адаптер можно создать вне корутины,
+        # в том числе на Python 3.14, где asyncio.get_event_loop() без
+        # установленного loop бросает RuntimeError.
+        self._loop = loop
 
         if logger is None:
             self.logger = DEFAULT_LOGGER
 
-        self.loop = loop
         self.url = url
         self.queue_name = queue_name
 
@@ -100,6 +105,21 @@ class BaseAdapter(ABC):
         self.exchange_name = exchange_name
         self.exchange_type = exchange_type
 
+    @property
+    def loop(self) -> asyncio.AbstractEventLoop:
+        """
+        Event loop адаптера.
+        Если loop не был передан при создании, используется текущий running loop.
+        """
+        if self._loop is None:
+            self._loop = asyncio.get_running_loop()
+
+        return self._loop
+
+    @loop.setter
+    def loop(self, value: asyncio.AbstractEventLoop) -> None:
+        self._loop = value
+
     async def create_connection(self, robust: Optional[bool] = True,
                                 prefetch_count: Optional[int] = 0,
                                 ssl: Optional[bool] = False,
@@ -110,8 +130,9 @@ class BaseAdapter(ABC):
         """
         if self.connection is None:
             connect_fn = aio_pika.connect_robust if robust else aio_pika.connect
+            loop = self.loop  # Резолвится в running loop внутри корутины
 
-            self.connection = await connect_fn(self.url, loop=self.loop, ssl=ssl,
+            self.connection = await connect_fn(self.url, loop=loop, ssl=ssl,
                                                ssl_options=ssl_options, ssl_context=ssl_context)
 
         if self.channel is None:

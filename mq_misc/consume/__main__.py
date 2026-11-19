@@ -88,6 +88,20 @@ async def async_main(consumer, args):
         await consumer.create_consume_connection(**params)
     except Exception as ex:
         logger.exception(ex)
+        raise
+
+
+async def _run(consumer, args, stop_event: Optional[asyncio.Event] = None):
+    """
+    Запуск потребителя и ожидание остановки процесса.
+    """
+    stop_event = stop_event or asyncio.Event()
+
+    try:
+        await async_main(consumer, args)
+        await stop_event.wait()
+    finally:
+        await consumer.close()
 
 
 def main():
@@ -95,19 +109,13 @@ def main():
 
     args = parser.parse_args()
 
-    loop = asyncio.get_event_loop()
-
     consumer = DebugConsumer(url=args.amqp_url, exchange_name=args.exchange, exchange_type=args.exchange_type,
                              queue_name=args.queue, logger=logger)
 
-    loop.create_task(async_main(consumer, args))
-
     try:
-        loop.run_forever()
+        asyncio.run(_run(consumer, args))
     except KeyboardInterrupt:
-        loop.run_until_complete(consumer.close())
-
-    loop.run_forever()
+        logger.info('Consumer stopped')
 
 
 if __name__ == '__main__':

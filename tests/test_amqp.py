@@ -1,4 +1,5 @@
 import asyncio
+import os
 import uuid
 from unittest.mock import AsyncMock
 
@@ -6,7 +7,7 @@ import aio_pika
 
 from mq_misc.amqp import BaseConsumer, ReplyToConsumer, create_weak_publisher
 
-url = 'amqp://guest:guest@localhost:5672/'
+url = os.environ.get('MQ_MISC_TEST_AMQP_URL', 'amqp://guest:guest@localhost:5672/')
 
 
 def make_queue_name() -> str:
